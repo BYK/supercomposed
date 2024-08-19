@@ -88,6 +88,17 @@ checkqa-mypy = ["mypy (==v0.761)"]
 testing = ["argcomplete", "hypothesis (>=3.56)", "mock", "nose", "requests", "xmlschema"]
 
 [[package]]
+name = "python-dotenv"
+version = "1.0.1"
+description = "Read key-value pairs from a .env file and set them as environment variables"
+category = "main"
+optional = false
+python-versions = ">=3.8"
+
+[package.extras]
+cli = ["click (>=5.0)"]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.2"
 description = "YAML parser and emitter for Python"
@@ -114,7 +125,7 @@ python-versions = "*"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "16467a207367c58eac2e3061635b9a09a348fe83672ce5b554f7613970fb53a4"
+content-hash = "b513c00a691a84d00546cec61bac262a384ba31fa3c9c751c150db93a661dc8b"
 
 [metadata.files]
 atomicwrites = []
@@ -125,6 +136,7 @@ packaging = []
 pluggy = []
 py = []
 pytest = []
+python-dotenv = []
 pyyaml = []
 types-pyyaml = []
 wcwidth = []

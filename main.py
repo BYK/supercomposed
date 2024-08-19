@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 
 from configparser import ConfigParser
+from dotenv import load_dotenv, dotenv_values
+from itertools import chain
 import json
+import os
 import re
 import subprocess
 import yaml
+
+
+load_dotenv(".env")
 
 
 ENV_VAR_RE = r"""(?x)
@@ -14,8 +20,8 @@ ENV_VAR_RE = r"""(?x)
 """
 
 
-def convert_env_var_declarations(s):
-    return re.sub(ENV_VAR_RE, r"%(ENV_\1\2)s", str(s)) if s else s
+def convert_env_var_declarations(s, r=r"%(ENV_\1\2)s"):
+    return re.sub(ENV_VAR_RE, r, str(s)) if s else s
 
 
 def stringify_docker_cmd_list(l):
@@ -41,22 +47,52 @@ supervisord_config["supervisord"] = {
 }
 
 for service_name, service_config in compose_data["services"].items():
-    image = service_config["image"]
-    # ensure docker image
-    try:
+    image = convert_env_var_declarations(
+        service_config["image"],
+        lambda m: os.environ.get(m[1] or m[2], ""),
+    )
+
+    if "build" in service_config:
+        build_info = service_config["build"]
+        build_args = build_info["args"]
+        if isinstance(build_args, list):
+            build_arg_list = [
+                (
+                    "--build-arg",
+                    arg,
+                )
+                for arg in build_args
+            ]
+        else:
+            build_arg_list = [
+                (
+                    (
+                        "--build-arg",
+                        f"{arg}={convert_env_var_declarations(val, lambda m: os.environ.get(m[1] or m[2], ''))}",
+                    )
+                    if val
+                    else ("--build-arg", arg)
+                )
+                for arg, val in build_args.items()
+            ]
+
+        subprocess.check_call(
+            ["docker", "build", "-t", image, build_info["context"]]
+            + list(chain(*build_arg_list)),
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+    else:
+        # ensure docker image
         subprocess.check_call(
             ["docker", "image", "pull", image],
             stderr=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
         )
-    except subprocess.CalledProcessError:
-        # TODO: Check if there's a `build` key and try to build the image
-        print(f"Had an issue when pulling the image for {service_name}, skipping")
-        image_definition = {"Config": {"Cmd": "", "Entrypoint": ""}}
-    else:
-        image_definition = json.loads(
-            subprocess.check_output(["docker", "inspect", image])
-        )[0]
+
+    image_definition = json.loads(
+        subprocess.check_output(["docker", "inspect", image])
+    )[0]
 
     entrypoint = service_config.get("entrypoint")
     if not entrypoint:
@@ -71,7 +107,6 @@ for service_name, service_config in compose_data["services"].items():
     if entrypoint:
         command = entrypoint + " " + command
 
-    # TODO: replace env variable expansions
     program_config = {
         "command": convert_env_var_declarations(command),
         "stdout_logfile": "/dev/stdout",
