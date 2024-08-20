@@ -35,7 +35,6 @@ def stringify_docker_cmd_list(l):
 with open("docker-compose.yml") as f:
     compose_data = yaml.safe_load(f)
 
-
 supervisord_config = ConfigParser()
 supervisord_config["supervisord"] = {
     "logfile": "/dev/stdout",
@@ -44,6 +43,9 @@ supervisord_config["supervisord"] = {
     "loglevel": "debug",
     "nodaemon": "true",
     "nocleanup": "true",
+    "environment": ",".join(
+        f"{key}={json.dumps(value)}" for key, value in dotenv_values(".env").items()
+    ),
 }
 
 for service_name, service_config in compose_data["services"].items():
@@ -115,7 +117,11 @@ for service_name, service_config in compose_data["services"].items():
     }
     if "environment" in service_config:
         program_config["environment"] = ",".join(
-            f"{key}={json.dumps(convert_env_var_declarations(value))}"
+            (
+                f"{key}={json.dumps(convert_env_var_declarations(value))}"
+                if value
+                else f"{key}=%(ENV_{key})s"
+            )
             for key, value in service_config["environment"].items()
         )
 
