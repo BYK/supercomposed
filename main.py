@@ -2,6 +2,7 @@
 
 from configparser import ConfigParser
 from dotenv import load_dotenv, dotenv_values
+from functools import cache
 from itertools import chain
 import json
 import os
@@ -19,6 +20,13 @@ ENV_VAR_RE = r"""(?x)
     \$\{([^\{:\s\}]+)(?:\:[^\{\:\s\}]+)?\} # ${ENV_VAR:val} style
 """
 
+RESTART_POLICY_MAP = {
+    "no": "false",
+    "on-failure": "unexpected",
+    "always": "true",
+    "unless-stopped": "true",
+}
+
 
 def convert_env_var_declarations(s, r=r"%(ENV_\1\2)s"):
     return re.sub(ENV_VAR_RE, r, str(s)) if s else s
@@ -34,6 +42,7 @@ def stringify_docker_cmd_list(l):
 
 with open("docker-compose.yml") as f:
     compose_data = yaml.safe_load(f)
+services = compose_data["services"]
 
 supervisord_config = ConfigParser()
 supervisord_config["supervisord"] = {
@@ -48,7 +57,21 @@ supervisord_config["supervisord"] = {
     ),
 }
 
-for service_name, service_config in compose_data["services"].items():
+
+@cache
+def get_service_dependency_depth(service_name, start_from=0):
+    dependencies = services[service_name].get("depends_on", {})
+    return start_from + (
+        max(
+            get_service_dependency_depth(dependency, start_from + 1)
+            for dependency in dependencies
+        )
+        if dependencies
+        else 0
+    )
+
+
+for service_name, service_config in services.items():
     image = convert_env_var_declarations(
         service_config["image"],
         lambda m: os.environ.get(m[1] or m[2], ""),
@@ -124,9 +147,16 @@ for service_name, service_config in compose_data["services"].items():
             )
             for key, value in service_config["environment"].items()
         )
+    # Dependency depth starts from 0, priority should start from 1 (I assume?)
+    program_config["priority"] = get_service_dependency_depth(service_name) + 1
+
+    restart_policy = service_config.get(
+        "restart_policy", service_config.get("restart", "no")
+    )
+    program_config["autorestart"] = RESTART_POLICY_MAP[restart_policy]
 
     supervisord_config[f"program:{service_name}"] = program_config
 
 
-with open("supervisord.ini", "w") as f:
+with open("supervisord.conf", "w") as f:
     supervisord_config.write(f)
